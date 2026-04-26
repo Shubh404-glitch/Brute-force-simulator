@@ -12,7 +12,7 @@
 ```
 bruteforce-simulator/
 │
-├── main.py           ← Interactive CLI menu (run this)
+├── app.py           ← Interactive CLI menu (run this)
 ├── targetlogin.py    ← Defender: login system with protections
 ├── bruteforce.py     ← Attacker: dictionary / brute-force / enumeration
 ├── usernames.txt     ← Username wordlist
