@@ -1,0 +1,17 @@
+# Python cache — never commit these (they are binary and cause VS Code warnings)
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Logs — these get large and are regenerated on each run
+logs.txt
+
+# Virtual environments
+venv/
+.venv/
+env/
+
+# OS files
+.DS_Store
+Thumbs.db
