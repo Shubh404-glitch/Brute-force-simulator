@@ -937,9 +937,9 @@ with st.sidebar:
     ], label_visibility="collapsed")
 
     st.markdown('<div class="sidebar-section">Parameters</div>', unsafe_allow_html=True)
-    thread_count = st.slider("Thread Count", 1, 16, 4)
+    thread_count = st.slider("Thread Count", 1, 16, 8)
     delay        = st.slider("Delay Between Attempts (s)", 0.0, 1.0, 0.0, 0.05)
-    max_attempts = st.number_input("Max Attempts", 100, 100000, 1000, step=500)
+    max_attempts = st.number_input("Max Attempts", 100, 100000, 10000, step=500)
 
     st.markdown('<div class="sidebar-section">System Status</div>', unsafe_allow_html=True)
     ls = st.session_state.login_system
@@ -1154,11 +1154,12 @@ elif "Dictionary" in page:
             metrics_area = st.empty()
             results_area = st.empty()
             attacker     = DictionaryAttacker(login, cfg)
+            from bruteforce import AttackStats
+            attacker.stats = AttackStats()   # Reset BEFORE thread starts so start_time is accurate
+            attacker._stop.clear()
             done         = [0]
 
             def _dict_run():
-                from bruteforce import AttackStats
-                attacker.stats = AttackStats(); attacker._stop.clear()
                 cracked = set()
                 single_user = len(usernames) == 1
                 for u in usernames:
@@ -1168,14 +1169,8 @@ elif "Dictionary" in page:
                         # If single-user and stop_first, honour global stop
                         if single_user and attacker._stop.is_set():
                             break
-                        while True:
-                            result = attacker._try_once(u, p, "DICTIONARY")
-                            if result.status == "LOCKED":
-                                wait = login.lockout_mgr.lockout_remaining(u)
-                                time.sleep(max(wait, 0.5) + 0.2)
-                                continue
-                            done[0] += 1
-                            break
+                        result = attacker._try_once(u, p, "DICTIONARY")
+                        done[0] += 1
                         if result.is_success():
                             cracked.add(u)
                             if single_user and stop_first:
@@ -1228,76 +1223,109 @@ elif "Brute Force" in page:
     """, unsafe_allow_html=True)
 
     st.markdown("<div style='height:28px'></div>", unsafe_allow_html=True)
-    target_user = st.text_input("Target Username (required)", placeholder="e.g. root")
+    target_user = st.text_input("Target Username (leave blank = try all usernames)", placeholder="e.g. root")
 
-    col1, col2 = st.columns(2)
-    with col1:
-        charset_opt = st.selectbox("Character Set", ["Lowercase (a-z)", "Digits (0-9)", "Lowercase + Digits", "Custom"])
-    charsets_map = {
-        "Lowercase (a-z)":    string.ascii_lowercase,
-        "Digits (0-9)":       string.digits,
-        "Lowercase + Digits": string.ascii_lowercase + string.digits,
-    }
-    charset = charsets_map.get(charset_opt, string.ascii_lowercase + string.digits)
-    with col2:
-        if charset_opt == "Custom":
-            charset = st.text_input("Custom Charset", value="abcdef0123456789")
-        else:
-            st.text_input("Active Charset", value=charset[:40] + ("…" if len(charset) > 40 else ""), disabled=True)
+    # ── Attack mode ──────────────────────────────────────────────────────
+    bf_mode = st.radio(
+        "Attack Mode",
+        ["🧠  Smart Mode (uses passwords.txt wordlist — guaranteed hits)",
+         "🔣  Pure Brute Force (generates character combinations)"],
+        index=0,
+    )
+    use_smart = "Smart" in bf_mode
 
-    col3, col4 = st.columns(2)
-    with col3: min_len = st.number_input("Min Password Length", 1, 4, 1)
-    with col4: max_len = st.number_input("Max Password Length", 1, 6, 4)
+    if use_smart:
+        passwords_bf = load_file(PASSWORDS_FILE)
+        st.info(f"Smart Mode: {len(passwords_bf)} passwords loaded from passwords.txt — will try each against the target.")
+        total_est = len(passwords_bf)
+        charset   = string.ascii_lowercase   # unused in smart mode but needed for cfg
+        cfg.charset             = charset
+        cfg.min_password_length = 1
+        cfg.max_password_length = 20
+    else:
+        col1, col2 = st.columns(2)
+        with col1:
+            charset_opt = st.selectbox("Character Set", ["Lowercase (a-z)", "Digits (0-9)", "Lowercase + Digits", "Custom"])
+        charsets_map = {
+            "Lowercase (a-z)":    string.ascii_lowercase,
+            "Digits (0-9)":       string.digits,
+            "Lowercase + Digits": string.ascii_lowercase + string.digits,
+        }
+        charset = charsets_map.get(charset_opt, string.ascii_lowercase + string.digits)
+        with col2:
+            if charset_opt == "Custom":
+                charset = st.text_input("Custom Charset", value="abcdef0123456789")
+            else:
+                st.text_input("Active Charset", value=charset[:40] + ("…" if len(charset) > 40 else ""), disabled=True)
 
-    cfg.charset             = charset
-    cfg.min_password_length = int(min_len)
-    cfg.max_password_length = int(max_len)
-    total_est = sum(len(charset) ** l for l in range(int(min_len), int(max_len) + 1))
+        col3, col4 = st.columns(2)
+        with col3: min_len = st.number_input("Min Password Length", 1, 4, 1)
+        with col4: max_len = st.number_input("Max Password Length", 1, 6, 4)
 
-    st.markdown(f"""
-    <div class="combo-bar">
-        <span>ESTIMATED COMBINATIONS:</span>
-        <span class="combo-bar-val">{total_est:,}</span>
-    </div>
-    """, unsafe_allow_html=True)
+        cfg.charset             = charset
+        cfg.min_password_length = int(min_len)
+        cfg.max_password_length = int(max_len)
+        total_est = sum(len(charset) ** l for l in range(int(min_len), int(max_len) + 1))
+        passwords_bf = None  # generated on-the-fly in pure mode
+
+        st.markdown(f"""
+        <div class="combo-bar">
+            <span>ESTIMATED COMBINATIONS:</span>
+            <span class="combo-bar-val">{total_est:,}</span>
+        </div>
+        """, unsafe_allow_html=True)
 
     if st.button("▶  LAUNCH BRUTE FORCE"):
-        if not target_user.strip():
-            st.error("Enter a target username.")
+        target_list = [target_user.strip()] if target_user.strip() else load_file(USERNAMES_FILE)
+        if not target_list:
+            st.error("Enter a target username or make sure usernames.txt exists.")
         else:
             progress_bar = st.progress(0, text="Generating combinations…")
             metrics_area = st.empty()
             results_area = st.empty()
             attacker     = BruteForceAttacker(login, cfg)
+            from bruteforce import AttackStats
+            attacker.stats = AttackStats()
+            attacker._stop.clear()
             done         = [0]
+            # Adjust max_attempts cap to cover full search space
+            cfg.max_attempts = max(cfg.max_attempts, total_est * len(target_list) + 1)
 
             def _bf_run():
                 import itertools
-                from bruteforce import AttackStats
-                attacker.stats = AttackStats(); attacker._stop.clear()
-                def gen():
-                    for ln in range(cfg.min_password_length, cfg.max_password_length + 1):
-                        for c in itertools.product(cfg.charset, repeat=ln):
-                            yield "".join(c)
-                for pwd in gen():
-                    if attacker.should_stop:
+                for tuser in target_list:
+                    if attacker._stop.is_set():
                         break
-                    while True:
-                        result = attacker._try_once(target_user.strip(), pwd, "BRUTE_FORCE")
-                        if result.status == "LOCKED":
-                            wait = login.lockout_mgr.lockout_remaining(target_user.strip())
-                            time.sleep(max(wait, 0.5) + 0.2)
-                            continue
-                        done[0] += 1
-                        break
-                    if result.is_success():
-                        attacker._stop.set()
-                        break
+                    if use_smart:
+                        # Smart mode: iterate passwords from wordlist
+                        for pwd in passwords_bf:
+                            if attacker._stop.is_set():
+                                break
+                            result = attacker._try_once(tuser, pwd, "BRUTE_FORCE")
+                            done[0] += 1
+                            if result.is_success():
+                                attacker._stop.set()
+                                break
+                    else:
+                        # Pure mode: generate character combinations
+                        def gen():
+                            for ln in range(cfg.min_password_length, cfg.max_password_length + 1):
+                                for c in itertools.product(cfg.charset, repeat=ln):
+                                    yield "".join(c)
+                        for pwd in gen():
+                            if attacker._stop.is_set():
+                                break
+                            result = attacker._try_once(tuser, pwd, "BRUTE_FORCE")
+                            done[0] += 1
+                            if result.is_success():
+                                attacker._stop.set()
+                                break
 
             t = threading.Thread(target=_bf_run, daemon=True); t.start()
+            run_total = total_est * len(target_list)
             while t.is_alive():
-                pct = min(done[0] / total_est, 1.0) if total_est else 0
-                progress_bar.progress(pct, text=f"Trying {done[0]:,} / {total_est:,}")
+                pct = min(done[0] / run_total, 1.0) if run_total else 0
+                progress_bar.progress(pct, text=f"Trying {done[0]:,} / {run_total:,}")
                 with metrics_area.container():
                     render_metrics(attacker.stats.total_attempts, attacker.stats.successful_hits,
                                    attacker.stats.attempts_per_second, attacker.stats.elapsed)
