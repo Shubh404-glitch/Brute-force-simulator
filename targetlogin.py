@@ -23,13 +23,13 @@ from typing import Optional, Dict, Tuple
 
 class LoginConfig:
     """Central configuration for the login system."""
-    MAX_ATTEMPTS_BEFORE_LOCKOUT: int = 5        # Failures before account locks
-    LOCKOUT_DURATION_SECONDS: int = 30          # How long the lockout lasts
-    CAPTCHA_THRESHOLD: int = 3                  # Failures before CAPTCHA required
-    MIN_RESPONSE_DELAY: float = 0.05           # Simulated server min latency (s)
-    MAX_RESPONSE_DELAY: float = 0.25           # Simulated server max latency (s)
+    MAX_ATTEMPTS_BEFORE_LOCKOUT: int = 10000    # Failures before account locks (disabled for simulation)
+    LOCKOUT_DURATION_SECONDS: int = 1           # How long the lockout lasts (minimal)
+    CAPTCHA_THRESHOLD: int = 999                # Failures before CAPTCHA required (disabled for simulation)
+    MIN_RESPONSE_DELAY: float = 0.001          # Simulated server min latency (s)
+    MAX_RESPONSE_DELAY: float = 0.005          # Simulated server max latency (s)
     RATE_LIMIT_WINDOW: int = 10                 # Seconds for rate-limit window
-    RATE_LIMIT_MAX_REQUESTS: int = 20           # Max requests per window per IP
+    RATE_LIMIT_MAX_REQUESTS: int = 10000        # Max requests per window per IP (high for simulation)
 
 
 # ---------------------------------------------------------------------------
@@ -232,7 +232,7 @@ class CaptchaSimulator:
 
     def verify(self) -> bool:
         """Simulate the time cost of a CAPTCHA challenge."""
-        time.sleep(random.uniform(0.1, 0.3))   # CAPTCHA solve delay
+        time.sleep(random.uniform(0.001, 0.005))   # CAPTCHA solve delay (minimal for simulation)
         return True   # Always passes in simulation
 
 
